@@ -1,0 +1,263 @@
+-- Data Cleaning
+
+-- Familirising with the dataset, selecting all rows from the table
+
+SELECT *
+FROM layoffs;
+
+-- Tasks to complete for data cleaning:
+-- 1. Remove duplicats
+-- 2. Standardize the data
+-- 3. Null values and blank values
+-- 4. Remove any columns
+
+
+-- Create a staging table for data cleaning (keeping a copy of the original dataset) 
+-- Create table layoffs_staging
+
+CREATE TABLE layoffs_staging
+LIKE layoffs; 
+
+SELECT *
+FROM layoffs_staging;
+
+-- Insert data into layoffs_staging from layoffs
+
+INSERT layoffs_staging
+SELECT *
+FROM layoffs;
+
+
+-- 1. Removing duplicats
+-- Checking for identical values
+
+SELECT *,
+ROW_NUMBER() OVER(
+PARTITION BY company, industry, total_laid_off, percentage_laid_off, `date`) AS row_num
+FROM layoffs_staging;
+
+-- Creating a cte table for DELETE function
+
+WITH duplicate_cte AS
+(
+  SELECT *,
+  ROW_NUMBER() OVER(
+  PARTITION BY company, location, industry, total_laid_off, percentage_laid_off, `date`, stage, country, funds_raised_millions) AS row_num
+  FROM layoffs_staging
+)
+
+-- Checking for idenctical rows
+
+SELECT *
+FROM duplicate_cte
+WHERE row_num > 1;
+
+-- Checking for company name
+
+SELECT *
+FROM layoffs_staging
+WHERE company = 'Casper';
+
+-- Removing duplicate values
+
+WITH duplicate_cte AS
+(
+  SELECT *,
+  ROW_NUMBER() OVER(
+  PARTITION BY company, location, industry, total_laid_off, percentage_laid_off, `date`, stage, country, funds_raised_millions) AS row_num
+  FROM layoffs_staging
+)
+
+-- Remove dupicats
+
+DELETE
+FROM duplicate_cte
+WHERE row_num > 1;
+-- Removing duplicates failed as target table not updatable (we can not update a cte) 
+
+-- Let's try another way by creating another staging table to perform the deletion.
+
+-- Creating a second staging table
+
+CREATE TABLE `layoffs_staging2` (
+  `company` text,
+  `location` text,
+  `industry` text,
+  `total_laid_off` int DEFAULT NULL,
+  `percentage_laid_off` text,
+  `date` text,
+  `stage` text,
+  `country` text,
+  `funds_raised_millions` int DEFAULT NULL,
+  `row_num` INT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Checking if layoffs_staging2 table is created correctly
+
+SELECT *
+FROM layoffs_staging2;
+
+
+-- Insert data from layoffs_staging to layoffs_staging2
+
+INSERT INTO layoffs_staging2
+SELECT *,
+  ROW_NUMBER() OVER(
+  PARTITION BY company, location, industry, total_laid_off, percentage_laid_off, `date`, stage, country, funds_raised_millions) AS row_num
+  FROM layoffs_staging;
+  
+-- Count data
+
+SELECT COUNT(*)
+FROM layoffs_staging2;
+  
+-- Check for duplicates  
+
+SELECT *
+FROM layoffs_staging2
+WHERE row_num > 1;
+ 
+-- Delete duplicates
+DELETE
+FROM layoffs_staging2
+WHERE row_num > 1;
+
+-- Check if duplicates been deleted
+
+SELECT *
+FROM layoffs_staging2
+WHERE row_num > 1;
+
+
+-- 2. Standardizing date
+ 
+ -- Trim company column
+
+SELECT company, TRIM(company)
+FROM layoffs_staging2;
+
+UPDATE layoffs_staging2
+SET company = TRIM(company);
+
+-- Trim industry column
+
+SELECT DISTINCT(industry)
+FROM layoffs_staging2
+ORDER BY 1;
+
+SELECT *
+FROM layoffs_staging2
+WHERE industry LIKE 'Crypto%';
+
+UPDATE layoffs_staging2
+SET industry = 'Crypto'
+WHERE industry LIKE 'Crypto%'; 
+
+-- Check location column
+
+SELECT DISTINCT location
+FROM layoffs_staging2
+ORDER BY 1;
+
+-- Trim country column
+
+SELECT DISTINCT country
+FROM layoffs_staging2
+ORDER BY 1;
+
+SELECT DISTINCT country
+FROM layoffs_staging2
+WHERE country LIKE 'United States%';
+
+SELECT DISTINCT country, TRIM(TRAILING '.' FROM country)
+FROM layoffs_staging2
+ORDER BY 1;
+
+UPDATE layoffs_staging2
+SET country = TRIM(TRAILING '.' FROM country)
+WHERE country LIKE 'United States%';
+
+
+-- Change data type for date column
+
+SELECT `date`,
+STR_TO_DATE(`date`, '%m/%d/%Y')
+FROM layoffs_staging2;
+
+UPDATE layoffs_staging2
+SET `date` = STR_TO_DATE(`date`, '%m/%d/%Y');
+
+SELECT COUNT(date)
+FROM layoffs_staging2;
+
+ALTER TABLE layoffs_staging2
+MODIFY COLUMN `date` DATE;
+
+SELECT *
+FROM layoffs_staging2;
+
+-- 3. Remove null and blank values
+
+-- Checking for NULL values in dataset
+
+SELECT *
+FROM layoffs_staging2
+WHERE total_laid_off IS NULL 
+AND percentage_laid_off IS NULL;
+
+SELECT DISTINCT industry
+FROM layoffs_staging2
+WHERE industry IS NULL
+OR industry = '';
+
+SELECT *
+FROM layoffs_staging2
+WHERE industry IS NULL
+OR industry = '';
+
+-- Identiftying blank and null values that can be populated
+
+SELECT *
+FROM layoffs_staging2
+WHERE company = 'Airbnb';
+
+SELECT t1.industry, t2.industry
+FROM layoffs_staging2 t1
+JOIN layoffs_staging2 t2
+	ON t1.company = t2.company
+    AND t1.location = t2.location
+WHERE (t1.industry IS NULL OR t1.industry = '')
+AND t2.industry IS NOT NULL;
+
+UPDATE layoffs_staging2 t1
+JOIN layoffs_staging2 t2
+	ON t1.company = t2.company
+SET t1.industry = t2.industry
+WHERE t1.industry IS NULL
+AND t2.industry IS NOT NULL;
+
+UPDATE layoffs_staging2
+SET industry = NULL
+WHERE industry = '';
+
+SELECT *
+FROM layoffs_staging2
+WHERE company LIKE 'Bally%';
+
+
+-- Delete rows from total_laid_off and percentage_laid_off where NULL values
+
+DELETE
+FROM layoffs_staging2
+WHERE total_laid_off IS NULL
+AND percentage_laid_off IS NULL;
+
+SELECT *
+FROM layoffs_staging2
+WHERE total_laid_off IS NULL
+AND percentage_laid_off IS NULL;
+
+-- Drop column row_num
+
+ALTER TABLE layoffs_staging2
+DROP COLUMN row_num;
